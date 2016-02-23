@@ -6,6 +6,8 @@ Created on 23/02/2016
 from pyspark import SparkContext, SparkConf
 from pyspark.mllib.regression import LabeledPoint
 from pyspark.mllib.linalg import Vectors
+from pyspark.mllib.tree import DecisionTree, DecisionTreeModel
+from pyspark.mllib.util import MLUtils
 import numpy as np
 import scipy.sparse as sps
 from freundeberg.utils.DateHelper import DateHelper
@@ -72,10 +74,21 @@ def start():
         return (line[1][0], day_usage_lagged
                                         .append(datehelper_from_value.is_tomorrow_off())
                                         .append(datehelper_from_value.was_yesterday_off()))    
-
     lag_seven_days = top3_per_day.map(lag_seven_days_func)
     lag_7days_clean = lag_seven_days.filter(lambda line: len(line[1])==(3*number_of_days)+2)
     labelpoint_lag7days = lag_7days_clean.map(lambda line: LabeledPoint(line[0],line[1]))
-                                  
+    (trainingData, testData) = labelpoint_lag7days.randomSplit((0.8, 0.2), 12344411L)
+    trainingData.cache()
+    testData.cache()
+    impurity = "variance"
+    maxDepth = 30
+    maxBins = 300
+    model = DecisionTree.trainRegressor(trainingData, categoricalFeaturesInfo={}, impurity,maxDepth, maxBins)
+    predictions = model.predict(testData.map(lambda x: x.features))
+    labelsAndPredictions = testData.map(lambda lp: lp.label).zip(predictions)
+    testMSE = labelsAndPredictions.map(lambda (v, p): (v - p) * (v - p)).sum() / float(testData.count())
+    print('Test Mean Squared Error = ' + str(testMSE))
+    print('Learned regression tree model:')
+    #print(model.toDebugString())
 if __name__ == '__main__':
     start()
